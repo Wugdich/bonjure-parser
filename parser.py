@@ -1,51 +1,103 @@
-import time
-from random import uniform
+from datetime import datetime, date
 
-import requests
-from fake_useragent import UserAgent
+import pandas as pd
 
-import config
+from bonjuredv_api import get_category_product_data, get_categories_ids
 
 
-def _delay() -> None:
-    """Function imitates delay and makes requests more human-like."""
+def _now() -> str:
+    """Function returns formatted current time."""
 
-    time.sleep(uniform(0.5, 1))
-
-
-def get_categories_ids() -> list[int]:
-    """ """
-
-    headers = {
-        'User-Agent': UserAgent().random,
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Origin': 'https://bonjour-dv.ru',
-        'Connection': 'keep-alive',
-        'Referer': 'https://bonjour-dv.ru/',
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'same-site',
-        'If-None-Match': 
-        'W/"0e858478c9345658abe4976a0d3f9567|43909681-d6e1-432d-b61f-ddac393cb5da"',
-    }
-
-    response = requests.get('https://api.bonjour-dv.ru/public_v1/categories',
-                            headers=headers)
-
-    print(response.json())
-    return [1]
-    categories_ids = _extract_categories_ids(response)
-
-    return categories_ids
+    return datetime.now().strftime("%H:%M:%S")
 
 
-def _extract_categories_ids(response: requests.Response) -> list[int]:
-    return [1]
+def _filter_data(category_product_data: dict) -> list[dict]:
+    """Function filters category product data, extracts only the necessary
+    data and adds some additional data (current date)."""
 
+    result = []
+    cur_date = date.today().strftime("%m/%d/%Y")
 
+    while category_product_data['data']:
+        product_data = category_product_data['data'].pop(0)
+
+        # Check nested data for null.
+        if product_data['category']:
+            category_name = product_data['category']['name']
+            if isinstance(category_name, str): category_name.strip()
+            category_id = product_data['category']['id']
+        else:
+            category_name = None
+            category_id = None
+
+        if product_data['barcode']:
+            barcode = product_data['barcode']['value']
+        else:
+            barcode = None
+
+        if product_data['manufacturer']:
+            manufacturer = product_data['manufacturer']['name']
+        else:
+            manufacturer = None
+
+        if product_data['brand']:
+            brand_name = product_data['brand']['name']
+        else:
+            brand_name = None
+
+        if product_data['default_image']:
+            product_image = product_data['default_image']['uri']
+            if isinstance(product_image, str): product_image.strip()
+        else:
+            product_image = None
+
+        product_title = product_data['title']
+        if isinstance(product_title, str): product_title.strip()
+        product_id = product_data['id']
+        offer_price = product_data['offer_price']
+        base_price = product_data['base_price']
+        discount = int(100 - (offer_price / base_price) * 100)
+
+        filtered_product_data = {
+                'date': cur_date,
+                'category_name': category_name,
+                'category_id': category_id,
+                'product_title': product_title,
+                'product_image': product_image,
+                'product_id': product_id,
+                'barcode': barcode,
+                'manufacturer': manufacturer,
+                'brand_name': brand_name,
+                'offer_price': offer_price,
+                'base_price': base_price,
+                'discount': discount
+                    }
+        result.append(filtered_product_data)
+
+    return result
+                
 def main() -> None:
-    get_categories_ids()
+    print(f'{_now()} Start parsing process.')
+    #category_restriction_count = 5
+    data_to_store = []
+    categories_ids = get_categories_ids()
+    for category_id in categories_ids:
+        #category_restriction_count -= 1
+        print(f'{_now()} Parsing category {category_id}...')
+        product_data = get_category_product_data(category_id)
+        filtered_product_data = _filter_data(product_data)
+        data_to_store = data_to_store + filtered_product_data
+
+        #if category_restriction_count == 0:
+        #   break
+
+    print(f'{_now()} Parsing process compeleted.')
+
+    df = pd.DataFrame(data_to_store)
+    cur_date = datetime.now().strftime('%m%d%Y-%H%M%S')
+    file_path = f'./data/products_data_{cur_date}.csv'
+    df.to_csv(file_path, encoding='utf-8', sep='\t')
+    print(f'{_now()} Data stored to {file_path}.')
 
 
 if __name__ == "__main__":
